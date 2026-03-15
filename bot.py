@@ -1,20 +1,23 @@
 import os
 import time
-import asyncio
 from datetime import datetime, timedelta
 from telegram import Bot
+import asyncio
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set!")
 
 GROUP_ID = -1003893865263
-TOPIC_1_ID = 190  # Make sure this is correct
+TOPIC_1_ID = 190
 OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up", "Travelling"]
 START_HOUR = 7
 END_HOUR = 24
 
-def next_quarter_exact(now=None):
+# ------------------ Utils ------------------
+
+def next_quarter_after(now=None):
+    """Return the next quarter-hour strictly after `now`."""
     if now is None:
         now = datetime.now()
     minutes = ((now.minute // 15) + 1) * 15
@@ -22,7 +25,10 @@ def next_quarter_exact(now=None):
     if minutes == 60:
         minutes = 0
         hour += 1
-    return now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
+    next_quarter = now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
+    if next_quarter <= now:
+        next_quarter += timedelta(minutes=15)
+    return next_quarter
 
 def next_allowed_time(now=None):
     if now is None:
@@ -34,11 +40,12 @@ def next_allowed_time(now=None):
         next_time += timedelta(days=1)
     return next_time
 
-def seconds_until(next_time):
-    return max((next_time - datetime.now()).total_seconds(), 0)
+def seconds_until(dt):
+    return max((dt - datetime.now()).total_seconds(), 0)
+
+# ------------------ Polling ------------------
 
 def send_poll(bot: Bot):
-    """Send a poll, wrapping async send_poll in asyncio.run for manual style."""
     now = datetime.now()
     if START_HOUR <= now.hour < END_HOUR:
         try:
@@ -56,17 +63,20 @@ def send_poll(bot: Bot):
         except Exception as e:
             print(f"[{datetime.now()}] Failed to send poll: {e}")
     else:
-        print(f"[{datetime.now()}] Outside allowed hours. Poll skipped")
+        print(f"[{datetime.now()}] Outside allowed hours. Poll skipped.")
+
+# ------------------ Main ------------------
 
 def main():
     bot = Bot(token=BOT_TOKEN)
     print(f"[{datetime.now()}] Bot started, sending first poll immediately")
     
-    # First poll at deployment
+    # First poll immediately
     send_poll(bot)
-    
+
     while True:
         now = datetime.now()
+        # If outside allowed hours, sleep until next START_HOUR
         if not (START_HOUR <= now.hour < END_HOUR):
             next_time = next_allowed_time(now)
             wait_seconds = seconds_until(next_time)
@@ -74,7 +84,8 @@ def main():
             time.sleep(wait_seconds)
             continue
 
-        next_quarter = next_quarter_exact()
+        # Sleep until next quarter AFTER now
+        next_quarter = next_quarter_after(now)
         wait_seconds = seconds_until(next_quarter)
         print(f"[{datetime.now()}] Waiting {wait_seconds:.0f}s until next poll at {next_quarter}")
         time.sleep(wait_seconds)
