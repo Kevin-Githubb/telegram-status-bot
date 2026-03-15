@@ -15,7 +15,7 @@ OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Was
 
 START_HOUR = 7
 END_HOUR = 24
-TIMEZONE = ZoneInfo("Asia/Singapore")  # Singapore time
+TIMEZONE = ZoneInfo("Asia/Singapore")
 
 # ------------------ Utils ------------------
 
@@ -23,7 +23,6 @@ def now_sgt():
     return datetime.now(TIMEZONE)
 
 def next_quarter_after(now=None):
-    """Next quarter-hour strictly after now in SGT."""
     if now is None:
         now = now_sgt()
     
@@ -34,11 +33,9 @@ def next_quarter_after(now=None):
         hour += 1
     next_quarter = now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
 
-    # Move to next allowed day if outside allowed hours
     if not (START_HOUR <= next_quarter.hour < END_HOUR):
         next_quarter = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0) + timedelta(days=1)
     
-    # Ensure strictly after now
     if next_quarter <= now:
         next_quarter += timedelta(minutes=15)
         if next_quarter.hour >= END_HOUR:
@@ -51,21 +48,34 @@ def seconds_until(dt):
 
 # ------------------ Polling ------------------
 
-def send_poll(bot: Bot):
+def send_poll(bot: Bot, to_topic=True):
     now = now_sgt()
     if START_HOUR <= now.hour < END_HOUR:
         try:
-            asyncio.run(
-                bot.send_poll(
-                    chat_id=GROUP_ID,
-                    message_thread_id=TOPIC_1_ID,
-                    question="What is Kevin doing right now?",
-                    options=OPTIONS,
-                    is_anonymous=False,
-                    allows_multiple_answers=False
+            if to_topic:
+                asyncio.run(
+                    bot.send_poll(
+                        chat_id=GROUP_ID,
+                        message_thread_id=TOPIC_1_ID,
+                        question="What is Kevin doing right now?",
+                        options=OPTIONS,
+                        is_anonymous=False,
+                        allows_multiple_answers=False
+                    )
                 )
-            )
-            print(f"[{now}] Poll sent to topic {TOPIC_1_ID}")
+                print(f"[{now}] Poll sent to topic {TOPIC_1_ID}")
+            else:
+                # first poll goes to main group without topic
+                asyncio.run(
+                    bot.send_poll(
+                        chat_id=GROUP_ID,
+                        question="What is Kevin doing right now?",
+                        options=OPTIONS,
+                        is_anonymous=False,
+                        allows_multiple_answers=False
+                    )
+                )
+                print(f"[{now}] First poll sent to group")
         except Exception as e:
             print(f"[{now}] Failed to send poll: {e}")
     else:
@@ -77,16 +87,17 @@ def main():
     bot = Bot(token=BOT_TOKEN)
     print(f"[{now_sgt()}] Bot started, sending first poll immediately")
     
-    # First poll immediately
-    send_poll(bot)
-    
+    # First poll immediately to group (no topic)
+    send_poll(bot, to_topic=False)
+    time.sleep(1)  # tiny delay to prevent Telegram double-send
+
     while True:
         now = now_sgt()
         next_poll_time = next_quarter_after(now)
         wait_seconds = seconds_until(next_poll_time)
         print(f"[{now}] Waiting {wait_seconds:.0f}s until next poll at {next_poll_time}")
         time.sleep(wait_seconds)
-        send_poll(bot)
+        send_poll(bot, to_topic=True)  # subsequent polls to forum topic
 
 if __name__ == "__main__":
     main()
