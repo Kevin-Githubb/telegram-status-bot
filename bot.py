@@ -20,48 +20,41 @@ END_HOUR = 24    # Midnight
 
 # ------------------ Utils ------------------
 
-def seconds_until_next_allowed():
-    """Return seconds until next allowed poll time if outside allowed hours."""
+def next_quarter_now_or_future():
+    """Return datetime object of the next quarter-hour in allowed hours."""
     now = datetime.now()
-    if START_HOUR <= now.hour < END_HOUR:
-        return 0
-    # Wait until next START_HOUR
-    next_start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
-    if now.hour >= END_HOUR:
-        next_start += timedelta(days=1)
-    delta = (next_start - now).total_seconds()
-    return max(delta, 0)
+    # Round to the next quarter-hour
+    minutes = (now.minute // 15) * 15
+    next_quarter = now.replace(minute=minutes, second=0, microsecond=0)
+    if now > next_quarter or now.minute % 15 != 0 or now.second != 0:
+        next_quarter += timedelta(minutes=15)
+
+    # If next_quarter is outside allowed hours, set to next START_HOUR
+    if not (START_HOUR <= next_quarter.hour < END_HOUR):
+        next_quarter = next_quarter.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
+        if next_quarter <= now:
+            next_quarter += timedelta(days=1)
+
+    return next_quarter
 
 def seconds_until_next_quarter():
-    """Return seconds until the next quarter-hour mark (00, 15, 30, 45)."""
+    """Return seconds until next poll time."""
     now = datetime.now()
-    extra_wait = seconds_until_next_allowed()
-    if extra_wait > 0:
-        return extra_wait
-
-    # Check if we are exactly on a quarter-hour
-    if now.minute % 15 == 0 and now.second == 0:
-        return 0  # send immediately
-
-    # Compute next quarter-hour minute
-    next_minute = (now.minute // 15 + 1) * 15
-    next_time = now.replace(second=0, microsecond=0)
-    if next_minute >= 60:
-        # move to next hour
-        next_time = next_time.replace(minute=0) + timedelta(hours=1)
-    else:
-        next_time = next_time.replace(minute=next_minute)
+    next_time = next_quarter_now_or_future()
     delta = (next_time - now).total_seconds()
-    return delta
+    return max(delta, 0)
 
 # ------------------ Polling ------------------
 
 async def send_poll(context):
     """Send a poll and schedule the next one at the next quarter-hour."""
-    extra_wait = seconds_until_next_allowed()
-    if extra_wait > 0:
-        context.job_queue.run_once(send_poll, extra_wait)
-        print(f"[{datetime.now()}] Outside allowed hours. Rescheduled poll in {extra_wait:.0f}s")
+    now = datetime.now()
+    if not (START_HOUR <= now.hour < END_HOUR):
+        # Wait until allowed hours
+        next_quarter = next_quarter_now_or_future()
+        wait_seconds = (next_quarter - now).total_seconds()
+        context.job_queue.run_once(send_poll, wait_seconds)
+        print(f"[{datetime.now()}] Outside allowed hours. Rescheduled poll in {wait_seconds:.0f}s")
         return
 
     try:
@@ -77,17 +70,17 @@ async def send_poll(context):
     except Exception as e:
         print(f"[{datetime.now()}] Error sending poll: {e}")
 
-    # Schedule next poll at next quarter-hour
-    next_quarter = seconds_until_next_quarter()
-    context.job_queue.run_once(send_poll, next_quarter)
-    print(f"[{datetime.now()}] Next poll scheduled in {next_quarter:.0f}s")
+    # Schedule next poll
+    next_quarter = next_quarter_now_or_future()
+    wait_seconds = (next_quarter - datetime.now()).total_seconds()
+    context.job_queue.run_once(send_poll, wait_seconds)
+    print(f"[{datetime.now()}] Next poll scheduled in {wait_seconds:.0f}s")
 
 # ------------------ Main ------------------
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Schedule the first poll at the next quarter-hour or immediately
     initial_wait = seconds_until_next_quarter()
     app.job_queue.run_once(send_poll, initial_wait)
     print(f"[{datetime.now()}] Bot starting... first poll in {initial_wait:.0f}s")
