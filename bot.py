@@ -1,6 +1,7 @@
 import os
+import time
 from datetime import datetime, timedelta
-from telegram.ext import ApplicationBuilder
+from telegram import Bot, Poll
 
 # --- Bot token ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -24,16 +25,14 @@ def next_quarter_exact(now=None):
     """Return datetime object of the next quarter-hour in allowed hours."""
     if now is None:
         now = datetime.now()
-    
-    # Round up to the next quarter
     minutes = ((now.minute // 15) + 1) * 15
     hour = now.hour
     if minutes == 60:
         minutes = 0
         hour += 1
     next_quarter = now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
-
-    # If next_quarter is outside allowed hours, move to next day's START_HOUR
+    
+    # If outside allowed hours, move to next day's START_HOUR
     if not (START_HOUR <= next_quarter.hour < END_HOUR):
         next_quarter = next_quarter.replace(hour=START_HOUR, minute=0, second=0, microsecond=0) + timedelta(days=1)
     
@@ -48,40 +47,35 @@ def seconds_until_next_quarter():
 
 # ------------------ Polling ------------------
 
-async def send_poll(context):
-    """Send a poll if within allowed hours."""
+def send_poll(bot: Bot):
     now = datetime.now()
-    if not (START_HOUR <= now.hour < END_HOUR):
-        # Outside allowed hours, do nothing (next poll scheduled automatically)
-        print(f"[{now}] Outside allowed hours. Skipping poll.")
-        return
-
-    try:
-        message = await context.bot.send_poll(
-            chat_id=GROUP_ID,
-            message_thread_id=TOPIC_1_ID,
-            question="What is Kevin doing right now?",
-            options=OPTIONS,
-            is_anonymous=False,
-            allows_multiple_answers=False
-        )
-        print(f"[{datetime.now()}] Poll sent! Poll ID: {message.poll.id}")
-    except Exception as e:
-        print(f"[{datetime.now()}] Error sending poll: {e}")
+    if START_HOUR <= now.hour < END_HOUR:
+        try:
+            message = bot.send_poll(
+                chat_id=GROUP_ID,
+                message_thread_id=TOPIC_1_ID,
+                question="What is Kevin doing right now?",
+                options=OPTIONS,
+                is_anonymous=False,
+                allows_multiple_answers=False
+            )
+            print(f"[{datetime.now()}] Poll sent! Poll ID: {message.poll.id}")
+        except Exception as e:
+            print(f"[{datetime.now()}] Error sending poll: {e}")
+    else:
+        print(f"[{datetime.now()}] Outside allowed hours. Poll skipped.")
 
 # ------------------ Main ------------------
 
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    bot = Bot(token=BOT_TOKEN)
+    print(f"[{datetime.now()}] Bot started...")
 
-    # Calculate initial delay to align with next quarter-hour
-    initial_wait = seconds_until_next_quarter()
-
-    # Schedule repeating poll every 15 minutes
-    app.job_queue.run_repeating(send_poll, interval=900, first=initial_wait)
-    print(f"[{datetime.now()}] Bot starting... first poll in {initial_wait:.0f}s")
-
-    app.run_polling()
+    while True:
+        wait_seconds = seconds_until_next_quarter()
+        print(f"[{datetime.now()}] Waiting {wait_seconds:.0f} seconds until next poll...")
+        time.sleep(wait_seconds)
+        send_poll(bot)
 
 if __name__ == "__main__":
     main()
