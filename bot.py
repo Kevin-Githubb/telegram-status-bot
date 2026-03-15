@@ -32,13 +32,13 @@ async def send_poll(app):
 
 
 async def poll_cycle(app):
-    """Send a poll every POLL_INTERVAL seconds, starting after the interval."""
+    """Send a poll immediately, then every POLL_INTERVAL seconds."""
     while True:
-        await asyncio.sleep(POLL_INTERVAL)  # wait first, prevents double poll at startup
         try:
-            await send_poll(app)
+            await send_poll(app)  # first poll immediately
         except Exception as e:
             print(f"Error sending poll: {e}")
+        await asyncio.sleep(POLL_INTERVAL)  # wait before next poll
 
 
 async def start_poll_loop(application):
