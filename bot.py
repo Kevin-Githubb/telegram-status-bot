@@ -1,5 +1,6 @@
 import os
 import time
+import asyncio
 from datetime import datetime, timedelta
 from telegram import Bot
 
@@ -37,41 +38,32 @@ def seconds_until(next_time):
     return max((next_time - datetime.now()).total_seconds(), 0)
 
 def send_poll(bot: Bot):
+    """Send a poll, wrapping async send_poll in asyncio.run for manual style."""
     now = datetime.now()
     if START_HOUR <= now.hour < END_HOUR:
         try:
-            # Try sending to topic first
-            bot.send_poll(
-                chat_id=GROUP_ID,
-                message_thread_id=TOPIC_1_ID,  # remove this if topic ID is invalid
-                question="What is Kevin doing right now?",
-                options=OPTIONS,
-                is_anonymous=False,
-                allows_multiple_answers=False
-            )
-            print(f"[{datetime.now()}] Poll sent to topic {TOPIC_1_ID}")
-        except Exception as e:
-            print(f"[{datetime.now()}] Failed to send poll to topic {TOPIC_1_ID}: {e}")
-            print(f"[{datetime.now()}] Trying group chat without topic...")
-            try:
+            asyncio.run(
                 bot.send_poll(
                     chat_id=GROUP_ID,
+                    message_thread_id=TOPIC_1_ID,
                     question="What is Kevin doing right now?",
                     options=OPTIONS,
                     is_anonymous=False,
                     allows_multiple_answers=False
                 )
-                print(f"[{datetime.now()}] Poll sent to group chat instead")
-            except Exception as e2:
-                print(f"[{datetime.now()}] Failed to send poll to group: {e2}")
+            )
+            print(f"[{datetime.now()}] Poll sent to topic {TOPIC_1_ID}")
+        except Exception as e:
+            print(f"[{datetime.now()}] Failed to send poll: {e}")
     else:
-        print(f"[{datetime.now()}] Outside allowed hours, poll skipped")
+        print(f"[{datetime.now()}] Outside allowed hours. Poll skipped")
 
 def main():
     bot = Bot(token=BOT_TOKEN)
     print(f"[{datetime.now()}] Bot started, sending first poll immediately")
     
-    send_poll(bot)  # first poll immediately
+    # First poll at deployment
+    send_poll(bot)
     
     while True:
         now = datetime.now()
@@ -81,7 +73,7 @@ def main():
             print(f"[{datetime.now()}] Sleeping until {next_time} ({wait_seconds:.0f}s)")
             time.sleep(wait_seconds)
             continue
-        
+
         next_quarter = next_quarter_exact()
         wait_seconds = seconds_until(next_quarter)
         print(f"[{datetime.now()}] Waiting {wait_seconds:.0f}s until next poll at {next_quarter}")
