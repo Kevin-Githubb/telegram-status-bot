@@ -3,15 +3,12 @@ import asyncio
 from telegram import Poll, Update
 from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes
 
-# Bot token from environment variable
 TOKEN = os.environ.get("BOT_TOKEN")
 
-# Telegram IDs
 GROUP_ID = -1003893865263
 TOPIC_1_ID = 190  # activity messages
 TOPIC_2_ID = 191  # poll options
 
-# Track users
 USER_MAP = {
     "iteachbad": "Kevin",
     "ilearnbad": "Giselle"
@@ -19,26 +16,26 @@ USER_MAP = {
 
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
 
-# Track poll data
-poll_data = {}
+poll_data = {}  # poll_id -> {message_id, user responses}
+
 
 async def send_poll(app):
-    """Send a poll once to topic 2"""
+    """Send a single poll to topic 2"""
     message = await app.bot.send_poll(
         chat_id=GROUP_ID,
         question="Choose your current activity:",
         options=OPTIONS,
         type=Poll.REGULAR,
         is_anonymous=False,
-        message_thread_id=TOPIC_2_ID,
+        message_thread_id=TOPIC_2_ID
     )
     poll_id = message.poll.id
     poll_data[poll_id] = {"message_id": message.message_id}
     print(f"Poll sent with id {poll_id}")
     return poll_id
 
+
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle poll answers from users"""
     poll_id = update.poll_answer.poll_id
     username = update.poll_answer.user.username
     option_ids = update.poll_answer.option_ids
@@ -49,7 +46,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if username in USER_MAP:
         poll_data[poll_id][username] = OPTIONS[option_ids[0]]
 
-    # If all users answered, post activity messages and delete poll
+    # If all tracked users answered, post activity messages and delete poll
     if all(u in poll_data[poll_id] for u in USER_MAP):
         for uname, display_name in USER_MAP.items():
             text = f"{display_name}: {poll_data[poll_id][uname]}"
@@ -58,7 +55,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=text,
                 message_thread_id=TOPIC_1_ID
             )
-        # Delete poll
+        # Delete the poll
         await context.bot.delete_message(
             chat_id=GROUP_ID,
             message_id=poll_data[poll_id]["message_id"],
@@ -66,20 +63,19 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         del poll_data[poll_id]
 
+
 async def poll_cycle(app: "ApplicationBuilder"):
-    """Send poll immediately, then every 15 minutes"""
+    """Send poll immediately and then every 15 minutes"""
     while True:
-        poll_id = await send_poll(app)
+        # Skip sending a new poll if one is active
+        if not poll_data:
+            await send_poll(app)
+        await asyncio.sleep(15 * 60)
 
-        # Wait up to 15 minutes or until all users answer
-        for _ in range(15*60):
-            if poll_id not in poll_data:  # already answered
-                break
-            await asyncio.sleep(1)
 
-async def post_init(app):
-    """Start poll loop after bot is running"""
-    app.create_task(poll_cycle(app))
+async def start_poll_cycle(app: "ApplicationBuilder"):
+    asyncio.create_task(poll_cycle(app))
+
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -87,11 +83,11 @@ def main():
     # Poll answer handler
     app.add_handler(PollHandler(handle_poll_answer))
 
-    # Post-init callback to start repeating task
-    app.post_init(post_init)
-
     print("Bot starting...")
-    app.run_polling()
+
+    # Run bot and start repeating poll task
+    app.run_polling(post_init=start_poll_cycle)
+
 
 if __name__ == "__main__":
     main()
