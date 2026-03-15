@@ -1,10 +1,11 @@
 import asyncio
+import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from datetime import datetime, timedelta
 
 # ---------------- CONFIG ----------------
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = -1003893865263  # Supergroup chat
 TOPIC1_ID = 190  # Activity messages
 TOPIC2_ID = 191  # Polling options
