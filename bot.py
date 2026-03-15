@@ -1,5 +1,4 @@
 import os
-import time
 from datetime import datetime, timedelta
 from telegram.ext import ApplicationBuilder
 
@@ -26,23 +25,28 @@ def seconds_until_next_allowed():
     now = datetime.now()
     if START_HOUR <= now.hour < END_HOUR:
         return 0
+    # Wait until next START_HOUR
     next_start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
-    if now.hour >= END_HOUR:
-        next_start += timedelta(days=1)
-    return (next_start - now).total_seconds()
+    if now.hour >= END_HOUR or now.hour < START_HOUR:
+        if now.hour >= END_HOUR:
+            next_start += timedelta(days=1)
+    delta = (next_start - now).total_seconds()
+    return max(delta, 0)
 
 def seconds_until_next_quarter():
     """Return seconds until the next quarter-hour mark (00, 15, 30, 45)."""
     now = datetime.now()
-    # Minutes to next quarter
+    # Compute next quarter-hour minute
     next_minute = (now.minute // 15 + 1) * 15
+    next_time = now.replace(second=0, microsecond=0)
     if next_minute >= 60:
-        next_hour = now.replace(hour=now.hour + 1 if now.hour < 23 else 0, minute=0, second=0, microsecond=0)
+        # move to next hour
+        next_time = next_time.replace(minute=0) + timedelta(hours=1)
     else:
-        next_hour = now.replace(minute=next_minute, second=0, microsecond=0)
-    delta = (next_hour - now).total_seconds()
-    # If outside allowed hours, wait until START_HOUR
+        next_time = next_time.replace(minute=next_minute)
+    # Make sure it's in allowed hours
     extra_wait = seconds_until_next_allowed()
+    delta = (next_time - now).total_seconds()
     return max(delta, extra_wait)
 
 # ------------------ Polling ------------------
@@ -54,7 +58,7 @@ async def send_poll(context):
     if extra_wait > 0:
         # Reschedule at allowed time
         context.job_queue.run_once(send_poll, extra_wait)
-        print(f"Outside allowed hours. Rescheduled poll in {extra_wait:.0f}s")
+        print(f"[{datetime.now()}] Outside allowed hours. Rescheduled poll in {extra_wait:.0f}s")
         return
 
     try:
@@ -68,12 +72,12 @@ async def send_poll(context):
         )
         print(f"[{datetime.now()}] Poll sent! Poll ID: {message.poll.id}")
     except Exception as e:
-        print(f"Error sending poll: {e}")
+        print(f"[{datetime.now()}] Error sending poll: {e}")
 
     # Schedule next poll at next quarter-hour
     next_quarter = seconds_until_next_quarter()
     context.job_queue.run_once(send_poll, next_quarter)
-    print(f"Next poll scheduled in {next_quarter:.0f}s")
+    print(f"[{datetime.now()}] Next poll scheduled in {next_quarter:.0f}s")
 
 # ------------------ Main ------------------
 
@@ -83,7 +87,7 @@ def main():
     # Schedule the first poll at the next quarter-hour
     initial_wait = seconds_until_next_quarter()
     app.job_queue.run_once(send_poll, initial_wait)
-    print(f"Bot starting... first poll in {initial_wait:.0f}s")
+    print(f"[{datetime.now()}] Bot starting... first poll in {initial_wait:.0f}s")
 
     app.run_polling()
 
