@@ -12,7 +12,7 @@ GROUP_ID = -1003893865263
 TOPIC_1_ID = 190  # Topic to poll
 
 # --- Poll options ---
-OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up","Travelling"]
+OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up", "Travelling"]
 
 # Allowed poll hours
 START_HOUR = 7   # 7:00 AM
@@ -27,15 +27,22 @@ def seconds_until_next_allowed():
         return 0
     # Wait until next START_HOUR
     next_start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
-    if now.hour >= END_HOUR or now.hour < START_HOUR:
-        if now.hour >= END_HOUR:
-            next_start += timedelta(days=1)
+    if now.hour >= END_HOUR:
+        next_start += timedelta(days=1)
     delta = (next_start - now).total_seconds()
     return max(delta, 0)
 
 def seconds_until_next_quarter():
     """Return seconds until the next quarter-hour mark (00, 15, 30, 45)."""
     now = datetime.now()
+    extra_wait = seconds_until_next_allowed()
+    if extra_wait > 0:
+        return extra_wait
+
+    # Check if we are exactly on a quarter-hour
+    if now.minute % 15 == 0 and now.second == 0:
+        return 0  # send immediately
+
     # Compute next quarter-hour minute
     next_minute = (now.minute // 15 + 1) * 15
     next_time = now.replace(second=0, microsecond=0)
@@ -44,19 +51,15 @@ def seconds_until_next_quarter():
         next_time = next_time.replace(minute=0) + timedelta(hours=1)
     else:
         next_time = next_time.replace(minute=next_minute)
-    # Make sure it's in allowed hours
-    extra_wait = seconds_until_next_allowed()
     delta = (next_time - now).total_seconds()
-    return max(delta, extra_wait)
+    return delta
 
 # ------------------ Polling ------------------
 
 async def send_poll(context):
     """Send a poll and schedule the next one at the next quarter-hour."""
-    # Check allowed hours
     extra_wait = seconds_until_next_allowed()
     if extra_wait > 0:
-        # Reschedule at allowed time
         context.job_queue.run_once(send_poll, extra_wait)
         print(f"[{datetime.now()}] Outside allowed hours. Rescheduled poll in {extra_wait:.0f}s")
         return
@@ -84,7 +87,7 @@ async def send_poll(context):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Schedule the first poll at the next quarter-hour
+    # Schedule the first poll at the next quarter-hour or immediately
     initial_wait = seconds_until_next_quarter()
     app.job_queue.run_once(send_poll, initial_wait)
     print(f"[{datetime.now()}] Bot starting... first poll in {initial_wait:.0f}s")
