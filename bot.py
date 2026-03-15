@@ -1,35 +1,29 @@
 import os
 import asyncio
-from telegram import Poll
-from telegram.ext import (
-    ApplicationBuilder,
-    PollHandler,
-    ContextTypes,
-    Update,
-)
+from telegram import Update, Poll
+from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes
 
-# Environment variable for token
+# Bot token from environment
 TOKEN = os.environ.get("BOT_TOKEN")
 
 # Telegram IDs
 GROUP_ID = -1003893865263
-TOPIC_1_ID = 190  # messages like Kevin: activity
-TOPIC_2_ID = 191  # polling options
+TOPIC_1_ID = 190  # User activity messages
+TOPIC_2_ID = 191  # Poll options
 
 # Users mapping
 USER_MAP = {
-    "@iteachbad": "Kevin",
-    "@ilearnbad": "Giselle"
+    "iteachbad": "Kevin",
+    "ilearnbad": "Giselle"
 }
 
-# Poll options
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
 
-# Store responses for active polls
+# Track poll data and responses
 poll_data = {}
 
 async def send_poll(app):
-    """Send poll to topic 2"""
+    """Send poll to topic 2 once"""
     message = await app.bot.send_poll(
         chat_id=GROUP_ID,
         question="Choose your current activity:",
@@ -44,21 +38,19 @@ async def send_poll(app):
     return poll_id
 
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle poll answers from users"""
+    """Handle answers from users"""
     poll_id = update.poll_answer.poll_id
     username = update.poll_answer.user.username
     option_ids = update.poll_answer.option_ids
 
     if poll_id not in poll_data:
-        return  # ignore old polls
+        return
 
-    # Only track responses from our defined users
     if username in USER_MAP:
         poll_data[poll_id][username] = OPTIONS[option_ids[0]]
 
-    # If both users responded
+    # If both users responded, send activity messages and delete poll
     if all(u in poll_data[poll_id] for u in USER_MAP):
-        # Send activity messages to topic 1
         for uname, display_name in USER_MAP.items():
             text = f"{display_name}: {poll_data[poll_id][uname]}"
             await context.bot.send_message(
@@ -66,7 +58,6 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=text,
                 message_thread_id=TOPIC_1_ID
             )
-        # Delete poll message
         await context.bot.delete_message(
             chat_id=GROUP_ID,
             message_id=poll_data[poll_id]["message_id"],
@@ -75,16 +66,16 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         del poll_data[poll_id]
 
 async def poll_cycle(app):
-    """Send poll every 15 minutes, wait for responses"""
+    """Send poll every 15 minutes"""
     while True:
         await send_poll(app)
-        await asyncio.sleep(900)  # 15 minutes
+        await asyncio.sleep(900)  # wait 15 minutes
 
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(PollHandler(handle_poll_answer))
 
-    # Start poll cycle
+    # Start the polling cycle task
     asyncio.create_task(poll_cycle(app))
 
     print("Bot starting...")
@@ -94,7 +85,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except RuntimeError:
-        # Already running loop (common in Docker/interactive environments)
+        # Already running loop (common in some environments)
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         loop.run_forever()
