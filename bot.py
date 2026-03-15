@@ -1,144 +1,98 @@
-import asyncio
 import os
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from datetime import datetime, timedelta
+import asyncio
+from telegram import Bot, Update, Poll, PollOption
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, PollHandler
 
-# ---------------- CONFIG ----------------
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID = -1003893865263  # Supergroup chat
-TOPIC1_ID = 190  # Activity messages
-TOPIC2_ID = 191  # Polling options
+# Environment bot token
+TOKEN = os.environ.get("BOT_TOKEN")
 
-USERS = {
+# Group & Topics
+GROUP_ID = -1003893865263
+TOPIC_1_ID = 190  # Messages with user activity
+TOPIC_2_ID = 191  # Poll options
+
+# Users mapping
+USER_MAP = {
     "@iteachbad": "Kevin",
     "@ilearnbad": "Giselle"
 }
 
+# Poll options
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
 
-# State tracking
-current_poll = {}
-selected_users = set()
+# Track responses per poll
+poll_data = {}
 
-# ---------------- HELPERS ----------------
-def build_keyboard():
-    keyboard = [[InlineKeyboardButton(opt, callback_data=opt)] for opt in OPTIONS]
-    return InlineKeyboardMarkup(keyboard)
-
-async def send_poll(app):
-    """Send poll in Topic 2."""
-    global current_poll, selected_users
-    current_poll = {}
-    selected_users.clear()
-    await app.bot.send_message(
-        chat_id=CHAT_ID,
-        message_thread_id=TOPIC2_ID,
-        text="Choose your activity:",
-        reply_markup=build_keyboard()
+async def send_poll(app: ApplicationBuilder):
+    """Send poll to topic 2 and store poll_id"""
+    message = await app.bot.send_poll(
+        chat_id=GROUP_ID,
+        question="Choose your current activity:",
+        options=OPTIONS,
+        type=Poll.REGULAR,
+        is_anonymous=False,
+        allow_multiple_answers=False,
+        message_thread_id=TOPIC_2_ID
     )
+    poll_id = message.poll.id
+    poll_data[poll_id] = {}  # store user responses
+    print(f"Poll sent with id {poll_id}")
+    return poll_id, message.message_id
 
-def next_quarter():
-    """Return datetime of next quarter hour."""
-    now = datetime.now()
-    minute = (now.minute // 15 + 1) * 15
-    hour = now.hour
-    if minute == 60:
-        minute = 0
-        hour += 1
-    return now.replace(hour=hour % 24, minute=minute, second=0, microsecond=0)
+async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle poll answer updates"""
+    poll_id = update.poll_answer.poll_id
+    user_name = update.poll_answer.user.username
+    option_ids = update.poll_answer.option_ids
 
-# ---------------- HANDLERS ----------------
-async def handle_poll_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button presses."""
-    global current_poll, selected_users
-    query = update.callback_query
-    await query.answer()
-    username = query.from_user.username
-    choice = query.data
+    if poll_id not in poll_data:
+        return  # ignore old polls
 
-    if username not in USERS:
-        await query.edit_message_text("You are not authorized to select.")
-        return
+    # Map user to their chosen option text
+    if user_name in USER_MAP:
+        choice_text = OPTIONS[option_ids[0]] if option_ids else "No selection"
+        poll_data[poll_id][user_name] = choice_text
+        print(f"{USER_MAP[user_name]} selected {choice_text}")
 
-    # Save selection
-    current_poll[username] = choice
-    selected_users.add(username)
-
-    # If 'Others', ask for manual input
-    if choice == "Others":
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            message_thread_id=TOPIC2_ID,
-            text=f"{USERS[username]}, please type your activity."
-        )
-
-    # If both selected, post in Topic 1 and delete buttons
-    if len(selected_users) == 2:
-        for user, act in current_poll.items():
-            # Skip if still 'Others' waiting for text
-            if act == "Others":
-                continue
+    # Check if both users have responded
+    if all(u in poll_data[poll_id] for u in USER_MAP):
+        # Send messages to topic 1
+        for uname, display_name in USER_MAP.items():
+            text = f"{display_name}: {poll_data[poll_id][uname]}"
             await context.bot.send_message(
-                chat_id=CHAT_ID,
-                message_thread_id=TOPIC1_ID,
-                text=f"{USERS[user]}: {act}"
+                chat_id=GROUP_ID,
+                text=text,
+                message_thread_id=TOPIC_1_ID
             )
-        # Clear poll
-        await query.edit_message_text("Poll closed. Next poll in 15 minutes.")
-        current_poll.clear()
-        selected_users.clear()
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle manual text for 'Others' option."""
-    global current_poll
-    username = update.message.from_user.username
-    if username not in current_poll or current_poll[username] != "Others":
-        return
-
-    text = update.message.text
-    await context.bot.send_message(
-        chat_id=CHAT_ID,
-        message_thread_id=TOPIC1_ID,
-        text=f"{USERS[username]}: {text}"
-    )
-    # Mark as selected
-    selected_users.add(username)
-
-    if len(selected_users) == 2:
-        # Delete poll message (optional, leave text as record)
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            message_thread_id=TOPIC2_ID,
-            text="Poll closed. Next poll in 15 minutes."
+        # Delete the poll message from topic 2
+        await context.bot.delete_message(
+            chat_id=GROUP_ID,
+            message_id=poll_data[poll_id]["message_id"],
+            message_thread_id=TOPIC_2_ID
         )
-        current_poll.clear()
-        selected_users.clear()
+        # Clean up
+        del poll_data[poll_id]
 
-# ---------------- SCHEDULER ----------------
-async def reset_options_periodically(app):
-    """Trigger poll every quarter hour."""
+async def poll_cycle(app: ApplicationBuilder):
+    """Send poll every quarter-hour"""
     while True:
-        await send_poll(app)
-        now = datetime.now()
-        next_run = next_quarter()
-        wait_seconds = (next_run - now).total_seconds()
-        await asyncio.sleep(wait_seconds)
+        poll_id, msg_id = await send_poll(app)
+        # Store message_id for deletion
+        poll_data[poll_id]["message_id"] = msg_id
 
-# ---------------- MAIN ----------------
+        # Wait 15 minutes before next poll
+        await asyncio.sleep(900)
+
 async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
     # Handlers
-    app.add_handler(CallbackQueryHandler(handle_poll_selection))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(PollHandler(handle_poll_answer))
 
-    # Immediate poll for testing
-    await send_poll(app)
+    # Start poll cycle task
+    asyncio.create_task(poll_cycle(app))
 
-    # Start periodic polling
-    app.create_task(reset_options_periodically(app))
-
+    # Start bot
     print("Bot starting...")
     await app.run_polling()
 
