@@ -19,7 +19,7 @@ async def reset_options_periodically(app: "Application"):
         now = datetime.now()
         minute = (now.minute // 15 + 1) * 15
         if minute == 60:
-            next_reset = now.replace(hour=now.hour+1, minute=0, second=0, microsecond=0)
+            next_reset = now.replace(hour=now.hour + 1, minute=0, second=0, microsecond=0)
         else:
             next_reset = now.replace(minute=minute, second=0, microsecond=0)
         await asyncio.sleep((next_reset - now).total_seconds())
@@ -63,25 +63,20 @@ async def check_and_post_results(update: Update, context: ContextTypes.DEFAULT_T
 
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(option_selected))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), manual_input))
 
-    # start periodic reset task AFTER bot is running
-    async def start_reset_task(app):
-        app.create_task(reset_options_periodically(app))
+    # Start the periodic reset task after building app
+    app.create_task(reset_options_periodically(app))
 
-    app.post_init(start_reset_task)
     print("Bot starting...")
     await app.run_polling()
 
-# ----------------------------
-# Only call main differently if loop is already running
-# ----------------------------
-try:
-    asyncio.get_running_loop()
-    # Loop exists, use create_task style
-    asyncio.create_task(main())
-except RuntimeError:
-    # No running loop, safe to run normally
+# Entry point
+if __name__ == "__main__":
+    import nest_asyncio
+    nest_asyncio.apply()  # solves "loop already running" in container/jupyter
+
     asyncio.run(main())
