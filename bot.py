@@ -1,37 +1,48 @@
-import os
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.ext import (
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ConversationHandler,
+)
 
 # ===== CONFIG =====
-TOKEN = os.environ.get("BOT_TOKEN")
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 # ===== OPTIONS =====
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
-
-# ===== STATES =====
 WAITING_FOR_MANUAL_TEXT = 1
 
-# ===== HANDLERS =====
+# ===== START COMMAND =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[opt] for opt in OPTIONS]
+    keyboard = [[option] for option in OPTIONS]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("Choose what Kevin is doing:", reply_markup=reply_markup)
+    await update.message.reply_text("Hi! Choose an activity for Kevin:", reply_markup=reply_markup)
     return WAITING_FOR_MANUAL_TEXT
 
+# ===== HANDLE CHOICE =====
 async def option_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text
-    if choice != "Others":
+    if choice in OPTIONS and choice != "Others":
         await update.message.reply_text(f'Kevin: "{choice}"', reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-    else:
+    elif choice == "Others":
         await update.message.reply_text("Please type your custom activity for Kevin:", reply_markup=ReplyKeyboardRemove())
         return WAITING_FOR_MANUAL_TEXT
+    else:
+        await update.message.reply_text("Please choose a valid option.")
+        return WAITING_FOR_MANUAL_TEXT
 
+# ===== HANDLE MANUAL TEXT =====
 async def manual_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     await update.message.reply_text(f'Kevin: "{text}"')
     return ConversationHandler.END
 
+# ===== CANCEL =====
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
@@ -45,13 +56,13 @@ def main():
         states={
             WAITING_FOR_MANUAL_TEXT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, option_chosen),
-            ],
+                MessageHandler(filters.TEXT & ~filters.COMMAND, manual_text),
+            ]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manual_text))
 
     print("Bot starting...")
     app.run_polling()
