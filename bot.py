@@ -1,52 +1,59 @@
 import os
-import asyncio
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
-# ====== CONFIG ======
-TOKEN = os.environ.get("BOT_TOKEN")  # Token from environment variable
+# ===== CONFIG =====
+TOKEN = os.environ.get("BOT_TOKEN")
 
-# Example dynamic options list
-options = ["Option 1", "Option 2", "Option 3"]
+# ===== OPTIONS =====
+OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
 
-# ====== COMMAND HANDLERS ======
+# ===== STATES =====
+WAITING_FOR_MANUAL_TEXT = 1
+
+# ===== HANDLERS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello! Bot is running.")
+    keyboard = [[opt] for opt in OPTIONS]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Choose what Kevin is doing:", reply_markup=reply_markup)
+    return WAITING_FOR_MANUAL_TEXT
 
-async def show_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "Here are the current options:\n" + "\n".join(f"- {opt}" for opt in options)
-    await update.message.reply_text(text)
-
-async def add_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Usage: /add_option Your new option
-    if context.args:
-        new_option = " ".join(context.args)
-        options.append(new_option)
-        await update.message.reply_text(f"Added option: {new_option}")
+async def option_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    if choice != "Others":
+        await update.message.reply_text(f'Kevin: "{choice}"', reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
     else:
-        await update.message.reply_text("Usage: /add_option <your option>")
+        await update.message.reply_text("Please type your custom activity for Kevin:", reply_markup=ReplyKeyboardRemove())
+        return WAITING_FOR_MANUAL_TEXT
 
-# ====== ASYNC SCHEDULER ======
-async def periodic_task():
-    while True:
-        print("Scheduler task running...")
-        # Example: could send message to a chat or do other async tasks
-        await asyncio.sleep(60)  # Runs every 60 seconds
+async def manual_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    await update.message.reply_text(f'Kevin: "{text}"')
+    return ConversationHandler.END
 
-# ====== MAIN ======
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Cancelled.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# ===== MAIN =====
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("show_options", show_options))
-    app.add_handler(CommandHandler("add_option", add_option))
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            WAITING_FOR_MANUAL_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, option_chosen),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
 
-    # Start the scheduler as a background task
-    app.create_task(periodic_task())
+    app.add_handler(conv_handler)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manual_text))
 
     print("Bot starting...")
-    # Start polling (async loop handled internally)
     app.run_polling()
 
 if __name__ == "__main__":
