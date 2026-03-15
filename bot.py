@@ -20,39 +20,39 @@ POLL_INTERVAL = 15 * 60  # 15 minutes
 
 async def send_poll(app):
     """Send a poll to Topic 1."""
-    message = await app.bot.send_poll(
-        chat_id=GROUP_ID,
-        message_thread_id=TOPIC_1_ID,
-        question="What are you doing right now?",
-        options=OPTIONS,
-        is_anonymous=False,
-        allows_multiple_answers=False
-    )
-    print(f"Poll sent! Poll ID: {message.poll.id}, Message ID: {message.message_id}")
+    try:
+        message = await app.bot.send_poll(
+            chat_id=GROUP_ID,
+            message_thread_id=TOPIC_1_ID,
+            question="What are you doing right now?",
+            options=OPTIONS,
+            is_anonymous=False,
+            allows_multiple_answers=False
+        )
+        print(f"Poll sent! Poll ID: {message.poll.id}, Message ID: {message.message_id}")
+    except Exception as e:
+        print(f"Error sending poll: {e}")
 
 
-async def poll_cycle(app):
+async def poll_loop(app):
     """Send a poll immediately, then every POLL_INTERVAL seconds."""
     while True:
-        try:
-            await send_poll(app)  # first poll immediately
-        except Exception as e:
-            print(f"Error sending poll: {e}")
-        await asyncio.sleep(POLL_INTERVAL)  # wait before next poll
+        await send_poll(app)           # send immediately
+        await asyncio.sleep(POLL_INTERVAL)  # wait 15 minutes
 
 
-async def start_poll_loop(application):
-    """Start the recurring poll loop once."""
-    if not getattr(application, "_poll_cycle_started", False):
-        application._poll_cycle_started = True
-        asyncio.create_task(poll_cycle(application))
+async def start_poll(application):
+    """Start the poll loop once."""
+    if not getattr(application, "_poll_started", False):
+        application._poll_started = True
+        asyncio.create_task(poll_loop(application))
 
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Assign post_init to start the poll loop
-    app.post_init = start_poll_loop
+    # Start the poll loop after app initializes
+    app.post_init = start_poll
 
     print("Bot starting...")
     app.run_polling()
