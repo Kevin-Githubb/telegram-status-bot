@@ -13,7 +13,7 @@ GROUP_ID = -1003893865263
 TOPIC_1_ID = 190  # Topic to poll
 
 # --- Poll options ---
-OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up"]
+OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up","Travelling"]
 
 # Allowed poll hours
 START_HOUR = 7   # 7:00 AM
