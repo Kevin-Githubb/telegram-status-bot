@@ -4,21 +4,18 @@ from telegram import Poll, Update
 from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes
 
 TOKEN = os.environ.get("BOT_TOKEN")
-
 GROUP_ID = -1003893865263
-TOPIC_1_ID = 190  # activity text
-TOPIC_2_ID = 191  # poll options
+TOPIC_1_ID = 190
+TOPIC_2_ID = 191
 
-USER_MAP = {"iteachbad": "Kevin", "ilearnbad": "Giselle"}
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
-
-poll_data = {}  # poll_id -> {message_id, user responses}
+USER_MAP = {"iteachbad": "Kevin", "ilearnbad": "Giselle"}
+poll_data = {}
 
 
 async def send_poll(app):
-    """Send a single poll if none active"""
     if poll_data:
-        return  # already a poll active
+        return  # Only one poll at a time
 
     message = await app.bot.send_poll(
         chat_id=GROUP_ID,
@@ -31,7 +28,6 @@ async def send_poll(app):
     poll_id = message.poll.id
     poll_data[poll_id] = {"message_id": message.message_id}
     print(f"Poll sent with id {poll_id}")
-    return poll_id
 
 
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -44,7 +40,6 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     poll_data[poll_id][username] = OPTIONS[option_ids[0]]
 
-    # If all tracked users answered, post messages and delete poll
     if all(u in poll_data[poll_id] for u in USER_MAP):
         for uname, display_name in USER_MAP.items():
             text = f"{display_name}: {poll_data[poll_id][uname]}"
@@ -53,6 +48,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=text,
                 message_thread_id=TOPIC_1_ID
             )
+
         await context.bot.delete_message(
             chat_id=GROUP_ID,
             message_id=poll_data[poll_id]["message_id"],
@@ -62,7 +58,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def poll_cycle(app):
-    """Send poll immediately on deploy and then every 15 minutes if no active poll"""
+    """Send poll immediately and then every 15 minutes if none active"""
     while True:
         await send_poll(app)
         await asyncio.sleep(15 * 60)
@@ -74,12 +70,14 @@ def main():
 
     print("Bot starting...")
 
-    # Start the poll loop in the background after the app starts
-    async def start_loop():
+    # Schedule the poll loop AFTER the bot is ready
+    async def start_poll_loop():
         asyncio.create_task(poll_cycle(app))
 
-    # Use `run_polling` directly, don't wrap in asyncio.run()
-    app.run_polling(post_init=start_loop if hasattr(app, "run_polling") else None)
+    # PTB v20+ way to add post-start tasks:
+    app.post_init = start_poll_loop  # <-- assign the coroutine, do NOT pass to run_polling()
+
+    app.run_polling()  # no post_init argument here!
 
 
 if __name__ == "__main__":
