@@ -1,9 +1,10 @@
 import asyncio
+import os
 from telegram import Poll
 from telegram.ext import ApplicationBuilder, ContextTypes
 
 # Your bot token
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+TOKEN = os.environ.get("BOT_TOKEN")
 
 # Chat/topic IDs
 TOPIC_2_CHAT_ID = -1001234567890  # replace with your chat id
