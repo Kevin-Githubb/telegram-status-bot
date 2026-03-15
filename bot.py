@@ -1,122 +1,133 @@
 import asyncio
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-# --- CONFIG ---
+# ======= CONFIG =======
 BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-USERS = {
-    "@iteachbad": "Kevin",
-    "@ilearnbad": "Giselle"
-}
+USERS = {"@iteachbad": "Kevin", "@ilearnbad": "Giselle"}  # map usernames to names
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
-RESET_INTERVAL_MINUTES = 15  # every quarter hour
+CHAT_ID = "YOUR_CHAT_ID_HERE"  # can be a group or personal chat ID
+RESET_INTERVAL_MINUTES = 15  # change later, initially can trigger immediately
+# ====================
 
-# --- GLOBAL STATE ---
-user_selections = {}  # {username: option or text}
-current_message_id = None
-chat_id = None
+# State to track selections
+user_selections = {}
+waiting_for_free_text = None  # store username if "Others" pressed
 
-# --- FUNCTIONS ---
-
-def get_keyboard():
-    keyboard = [[InlineKeyboardButton(opt, callback_data=opt)] for opt in OPTIONS]
-    return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global chat_id
-    chat_id = update.effective_chat.id
-    await send_options(context)
+    """Send options menu."""
+    await send_options_menu(context)
 
-async def send_options(context: ContextTypes.DEFAULT_TYPE):
-    global current_message_id
-    user_selections.clear()
-    if chat_id:
-        msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text="Choose an activity:",
-            reply_markup=get_keyboard()
-        )
-        current_message_id = msg.message_id
 
-async def handle_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_options_menu(context: ContextTypes.DEFAULT_TYPE):
+    """Send inline keyboard with options."""
+    keyboard = [
+        [InlineKeyboardButton(opt, callback_data=opt)] for opt in OPTIONS
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(
+        chat_id=CHAT_ID, text="Select your activity:", reply_markup=reply_markup
+    )
+
+
+async def option_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle option pressed by a user."""
+    global waiting_for_free_text
+
     query = update.callback_query
-    username = f"@{query.from_user.username}"
-    user_display = USERS.get(username)
-    if not user_display:
-        await query.answer("You are not registered for this bot.")
+    await query.answer()
+    user = query.from_user.username
+    selection = query.data
+
+    # If user pressed "Others", wait for free text
+    if selection == "Others":
+        waiting_for_free_text = user
+        await context.bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"{USERS.get(user, user)}, please type your activity now.",
+        )
         return
 
-    await query.answer()  # acknowledge callback
+    # Record selection
+    user_selections[user] = selection
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text=f"{USERS.get(user, user)}: {selection}",
+    )
 
-    # Check for 'Others' selection
-    if query.data == "Others":
-        await query.message.reply_text(f"{username}, please type your custom activity:")
-        # Mark waiting for text
-        user_selections[username] = None
-    else:
-        user_selections[username] = query.data
+    # Check if both users have selected
+    if all(u in user_selections for u in USERS):
+        await context.bot.send_message(chat_id=CHAT_ID, text="Both have selected! Options reset.")
+        user_selections.clear()
+        await send_options_menu(context)
 
-    # If both users have responded, post messages
-    if all(u in user_selections and user_selections[u] for u in USERS):
-        for u, name in USERS.items():
-            await context.bot.send_message(chat_id=chat_id, text=f"{name}: {user_selections[u]}")
-        # Delete the options message
-        if current_message_id:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=current_message_id)
-            except:
-                pass
-        user_selections.clear()  # ready for next round
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = f"@{update.message.from_user.username}"
-    if username not in USERS:
-        return
-    # Only accept if user had selected 'Others' and waiting for input
-    if username in user_selections and user_selections[username] is None:
-        user_selections[username] = update.message.text
+    """Handle free-text for 'Others' option."""
+    global waiting_for_free_text
+    user = update.message.from_user.username
+    text = update.message.text
 
-        # Check if both users are done
-        if all(u in user_selections and user_selections[u] for u in USERS):
-            for u, name in USERS.items():
-                await context.bot.send_message(chat_id=chat_id, text=f"{name}: {user_selections[u]}")
-            # Delete the options message
-            if current_message_id:
-                try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=current_message_id)
-                except:
-                    pass
+    if waiting_for_free_text == user:
+        user_selections[user] = text
+        await context.bot.send_message(
+            chat_id=CHAT_ID, text=f"{USERS.get(user, user)}: {text}"
+        )
+        waiting_for_free_text = None
+
+        # Check if both users have selected
+        if all(u in user_selections for u in USERS):
+            await context.bot.send_message(chat_id=CHAT_ID, text="Both have selected! Options reset.")
             user_selections.clear()
+            await send_options_menu(context)
 
-async def reset_options_periodically(application):
-    # Immediate trigger for testing
-    await asyncio.sleep(1)
-    if chat_id:
-        await send_options(application)
-    # Schedule every quarter hour
+
+async def reset_options_periodically(context: ContextTypes.DEFAULT_TYPE):
+    """Reset the options menu every quarter-hour."""
     while True:
         now = datetime.now()
-        next_run = (now + timedelta(minutes=RESET_INTERVAL_MINUTES)).replace(second=0, microsecond=0)
-        wait_seconds = (next_run - now).total_seconds()
+        # Next quarter-hour
+        next_minute = (now.minute // 15 + 1) * 15
+        next_time = now.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=next_minute)
+        wait_seconds = (next_time - now).total_seconds()
         await asyncio.sleep(wait_seconds)
-        if chat_id:
-            await send_options(application)
+
+        user_selections.clear()
+        await send_options_menu(context)
+
 
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Commands
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_option))
-    app.add_handler(CommandHandler("reset", lambda u, c: send_options(c)))  # optional manual reset
-    app.add_handler(app.message_handler(handle_text, filters=None))  # handle free text
 
-    # Start the periodic reset task
+    # Inline button presses
+    app.add_handler(CallbackQueryHandler(option_selected))
+
+    # Free-text input for "Others"
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    # Start periodic reset task
     app.create_task(reset_options_periodically(app))
 
-    print("Bot starting...")
+    # For immediate testing on deploy, send options right away
+    await send_options_menu(app)
+
     await app.run_polling()
 
+
 if __name__ == "__main__":
-    import asyncio
+    import nest_asyncio
+
+    nest_asyncio.apply()  # ensures no "event loop already running" in some containers
     asyncio.run(main())
