@@ -1,16 +1,18 @@
 import asyncio
 import os
-from telegram import Poll
-from telegram.ext import ApplicationBuilder, ContextTypes
+from telegram.ext import ApplicationBuilder
 
-# Your bot token
-TOKEN = os.environ.get("BOT_TOKEN")
+# --- Bot token ---
+# Make sure you have set BOT_TOKEN in your environment, e.g., export BOT_TOKEN="123:ABC"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is not set!")
 
-# Chat/topic IDs
-TOPIC_2_CHAT_ID = -1001234567890  # replace with your chat id
+# --- Chat/topic ID ---
+TOPIC_2_CHAT_ID = -1001234567890  # Replace with your actual chat ID
 
-# Poll options
-OPTIONS = ["Option 1", "Option 2", "Option 3"]
+# --- Poll options ---
+OPTIONS = ["Eating", "Sleeping", "Working", "Exercising"]  # Customize as you like
 
 # Interval between polls (in seconds)
 POLL_INTERVAL = 15 * 60  # 15 minutes
@@ -22,7 +24,7 @@ async def send_poll(app):
     """
     message = await app.bot.send_poll(
         chat_id=TOPIC_2_CHAT_ID,
-        question="Please choose an option:",
+        question="What are you doing right now?",
         options=OPTIONS,
         is_anonymous=False,
         allows_multiple_answers=False
