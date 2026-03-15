@@ -15,7 +15,6 @@ USER_MAP = {
 }
 
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
-
 poll_data = {}  # poll_id -> {message_id, user responses}
 
 
@@ -64,30 +63,26 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         del poll_data[poll_id]
 
 
-async def poll_cycle(app: "ApplicationBuilder"):
+async def poll_cycle(app):
     """Send poll immediately and then every 15 minutes"""
     while True:
-        # Skip sending a new poll if one is active
-        if not poll_data:
+        if not poll_data:  # Only send if no active poll
             await send_poll(app)
         await asyncio.sleep(15 * 60)
 
 
-async def start_poll_cycle(app: "ApplicationBuilder"):
-    asyncio.create_task(poll_cycle(app))
-
-
-def main():
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
-    # Poll answer handler
     app.add_handler(PollHandler(handle_poll_answer))
 
     print("Bot starting...")
 
-    # Run bot and start repeating poll task
-    app.run_polling(post_init=start_poll_cycle)
+    # Start the poll loop as a background task
+    asyncio.create_task(poll_cycle(app))
+
+    # Start polling (this blocks)
+    await app.run_polling()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
