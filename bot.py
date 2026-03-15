@@ -13,7 +13,7 @@ GROUP_ID = -1003893865263
 TOPIC_1_ID = 190  # Topic to poll
 
 # --- Poll options ---
-OPTIONS = ["Eating", "Sleeping", "Working", "Exercising"]
+OPTIONS = ["Eating", "Going to Sleep", "Working","Studying", "Exercising","Washing Up"]
 
 # Interval between polls (seconds)
 POLL_INTERVAL = 15 * 60  # 15 minutes
@@ -46,7 +46,7 @@ async def send_poll(app):
         message = await app.bot.send_poll(
             chat_id=GROUP_ID,
             message_thread_id=TOPIC_1_ID,
-            question="What are you doing right now?",
+            question="What is Kevin doing right now?",
             options=OPTIONS,
             is_anonymous=False,
             allows_multiple_answers=False
