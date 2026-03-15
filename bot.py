@@ -1,51 +1,77 @@
+import os
 import asyncio
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = "YOUR_BOT_TOKEN"
+# ==============================
+# CONFIG
+# ==============================
+# Replace this with your bot token string
+TOKEN = os.environ.get("BOT_TOKEN")
 
-options = ["Working", "Studying", "Eating", "Travelling", "Sleeping", "Other"]
-topic1_id = -1003893865263  # Where responses go
-topic2_id = -1003893865263  # Where the bot pings you (can be same supergroup, different thread)
+# Global list to store dynamic options
+options = ["Option 1", "Option 2"]  # starting default options
 
-scheduler = AsyncIOScheduler()
 
-# Ping function
-async def ping(context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(opt, callback_data=opt)] for opt in options]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(
-        chat_id=topic2_id,
-        text="What are you doing?",
-        reply_markup=reply_markup
+# ==============================
+# BOT COMMAND HANDLERS
+# ==============================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hello! I'm alive. Use /options to see current options."
     )
 
-# Handle button clicks
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    response = query.data
-    await context.bot.send_message(
-        chat_id=topic1_id,
-        text=f"{query.from_user.first_name}: {response}"
-    )
 
-async def start_scheduler(app):
-    scheduler.add_job(lambda: asyncio.create_task(ping(app.bot)), 'interval', minutes=15,
-                      start_date='2026-03-15 07:00:00', end_date='2026-03-15 23:59:00')
-    scheduler.start()
+async def show_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if options:
+        text = "\n".join(f"- {opt}" for opt in options)
+        await update.message.reply_text(f"Current options:\n{text}")
+    else:
+        await update.message.reply_text("No options yet.")
 
+
+async def add_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /add <option>")
+        return
+    new_option = " ".join(context.args)
+    options.append(new_option)
+    await update.message.reply_text(f"Added new option: {new_option}")
+
+
+# ==============================
+# SCHEDULER JOB
+# ==============================
+async def scheduled_job():
+    # Example: print to console or do something with options
+    print("Scheduled job running! Current options:", options)
+
+
+# ==============================
+# MAIN ASYNC FUNCTION
+# ==============================
 async def main():
+    # Build bot application
     app = ApplicationBuilder().token(TOKEN).build()
-    
-    app.add_handler(CallbackQueryHandler(button))
 
-    # Start scheduler after bot starts
-    asyncio.create_task(start_scheduler(app))
+    # Add handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("options", show_options))
+    app.add_handler(CommandHandler("add", add_option))
 
-    # Run bot
+    # Setup scheduler
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(scheduled_job, "interval", seconds=60)  # every 60 seconds
+    scheduler.start()  # runs inside the bot's event loop
+
+    # Start the bot (this will run forever until stopped)
+    print("Bot starting...")
     await app.run_polling()
 
+
+# ==============================
+# ENTRY POINT
+# ==============================
 if __name__ == "__main__":
     asyncio.run(main())
