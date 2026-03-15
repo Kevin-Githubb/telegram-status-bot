@@ -1,65 +1,77 @@
 import asyncio
 import os
-from telegram.ext import ApplicationBuilder
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, PollHandler
 
 # --- Bot token ---
-# Make sure you have set BOT_TOKEN in your environment, e.g., export BOT_TOKEN="123:ABC"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set!")
 
-# --- Chat/topic ID ---
-TOPIC_2_CHAT_ID = -1001234567890  # Replace with your actual chat ID
+# --- Group and topics ---
+GROUP_ID = -1003893865263
+TOPIC_1_THREAD_ID = 190  # Poll goes here
+TOPIC_2_THREAD_ID = 191  # Forward answers here
 
 # --- Poll options ---
-OPTIONS = ["Eating", "Sleeping", "Working", "Exercising"]  # Customize as you like
+OPTIONS = ["Eating", "Sleeping", "Working", "Exercising"]
 
-# Interval between polls (in seconds)
+# Interval between polls (seconds)
 POLL_INTERVAL = 15 * 60  # 15 minutes
 
 
 async def send_poll(app):
-    """
-    Sends a poll to the target chat and returns the poll message id.
-    """
+    """Send a poll to Topic 1 in the group."""
     message = await app.bot.send_poll(
-        chat_id=TOPIC_2_CHAT_ID,
+        chat_id=GROUP_ID,
+        message_thread_id=TOPIC_1_THREAD_ID,
         question="What are you doing right now?",
         options=OPTIONS,
         is_anonymous=False,
         allows_multiple_answers=False
     )
-    return message.poll.id, message.message_id
+    print(f"Poll sent to Topic 1! Poll ID: {message.poll.id}")
+    return message.poll.id
 
 
 async def poll_cycle(app):
-    """
-    Sends a poll once every POLL_INTERVAL seconds.
-    """
+    """Send polls repeatedly at intervals."""
     while True:
         try:
-            poll_id, msg_id = await send_poll(app)
-            print(f"Poll sent! Poll ID: {poll_id}, Message ID: {msg_id}")
+            await send_poll(app)
         except Exception as e:
             print(f"Error sending poll: {e}")
         await asyncio.sleep(POLL_INTERVAL)
 
 
-async def start_poll_loop(application):
-    """
-    PTB post_init function to start the polling loop.
-    """
-    asyncio.create_task(poll_cycle(application))
+async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Forward answers from Topic 1 to Topic 2."""
+    try:
+        user = update.poll_answer.user
+        option_ids = update.poll_answer.option_ids
+        chosen_options = [OPTIONS[i] for i in option_ids]
+
+        text = f"{user.full_name} chose: {', '.join(chosen_options)}"
+        await context.bot.send_message(
+            chat_id=GROUP_ID,
+            message_thread_id=TOPIC_2_THREAD_ID,
+            text=text
+        )
+        print(f"Forwarded poll answer to Topic 2: {text}")
+    except Exception as e:
+        print(f"Error forwarding poll answer: {e}")
 
 
 def main():
-    # Create the application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Assign the post_init to start the poll loop
-    app.post_init = start_poll_loop
+    # Handle poll answers
+    app.add_handler(PollHandler(handle_poll_answer))
 
-    # Run the bot (blocking)
+    # Start poll loop in the background
+    asyncio.create_task(poll_cycle(app))
+
+    # Start bot
     print("Bot starting...")
     app.run_polling()
 
