@@ -1,9 +1,9 @@
 import os
 import asyncio
-from telegram import Poll
-from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes, Update
+from telegram import Poll, Update
+from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes
 
-# Bot token from environment
+# Bot token from environment variable
 TOKEN = os.environ.get("BOT_TOKEN")
 
 # Telegram IDs
@@ -11,7 +11,7 @@ GROUP_ID = -1003893865263
 TOPIC_1_ID = 190  # activity messages
 TOPIC_2_ID = 191  # poll options
 
-# Users to track
+# Track users
 USER_MAP = {
     "iteachbad": "Kevin",
     "ilearnbad": "Giselle"
@@ -23,7 +23,7 @@ OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
 poll_data = {}
 
 async def send_poll(app):
-    """Send poll once to topic 2"""
+    """Send a poll once to topic 2"""
     message = await app.bot.send_poll(
         chat_id=GROUP_ID,
         question="Choose your current activity:",
@@ -69,8 +69,13 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def poll_cycle(app: "ApplicationBuilder"):
     """Send poll immediately, then every 15 minutes"""
     while True:
-        await send_poll(app)
-        await asyncio.sleep(900)  # 15 minutes
+        poll_id = await send_poll(app)
+
+        # Wait up to 15 minutes or until all users answer
+        for _ in range(15*60):
+            if poll_id not in poll_data:  # already answered
+                break
+            await asyncio.sleep(1)
 
 async def post_init(app):
     """Start poll loop after bot is running"""
