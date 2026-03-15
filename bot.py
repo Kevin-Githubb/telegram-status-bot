@@ -1,4 +1,3 @@
-import asyncio
 import os
 import time
 from datetime import datetime, timedelta
@@ -16,54 +15,50 @@ TOPIC_1_ID = 190  # Topic to poll
 # --- Poll options ---
 OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up"]
 
-# Interval between polls (seconds)
-POLL_INTERVAL = 15 * 60  # 15 minutes
-
-# File to store last poll timestamp
-LAST_POLL_FILE = "last_poll_time.txt"
-
 # Allowed poll hours
 START_HOUR = 7   # 7:00 AM
 END_HOUR = 24    # Midnight
 
-# Singleton task to prevent multiple loops
-_poll_task = None
-
-# ------------------ Utility Functions ------------------
-
-def load_last_poll_time():
-    """Load the timestamp of the last poll from file."""
-    try:
-        with open(LAST_POLL_FILE, "r") as f:
-            return float(f.read())
-    except Exception:
-        return 0.0
-
-def save_last_poll_time(ts):
-    """Save the timestamp of the last poll to file."""
-    try:
-        with open(LAST_POLL_FILE, "w") as f:
-            f.write(str(ts))
-    except Exception as e:
-        print(f"Error saving last poll time: {e}")
+# ------------------ Utils ------------------
 
 def seconds_until_next_allowed():
     """Return seconds until next allowed poll time if outside allowed hours."""
     now = datetime.now()
     if START_HOUR <= now.hour < END_HOUR:
         return 0
-    # If before allowed hours
     next_start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
-    if now.hour >= END_HOUR:  # After midnight
+    if now.hour >= END_HOUR:
         next_start += timedelta(days=1)
     return (next_start - now).total_seconds()
 
-# ------------------ Polling Functions ------------------
+def seconds_until_next_quarter():
+    """Return seconds until the next quarter-hour mark (00, 15, 30, 45)."""
+    now = datetime.now()
+    # Minutes to next quarter
+    next_minute = (now.minute // 15 + 1) * 15
+    if next_minute >= 60:
+        next_hour = now.replace(hour=now.hour + 1 if now.hour < 23 else 0, minute=0, second=0, microsecond=0)
+    else:
+        next_hour = now.replace(minute=next_minute, second=0, microsecond=0)
+    delta = (next_hour - now).total_seconds()
+    # If outside allowed hours, wait until START_HOUR
+    extra_wait = seconds_until_next_allowed()
+    return max(delta, extra_wait)
 
-async def send_poll(app):
-    """Send a poll to Topic 1 and update last poll timestamp."""
+# ------------------ Polling ------------------
+
+async def send_poll(context):
+    """Send a poll and schedule the next one at the next quarter-hour."""
+    # Check allowed hours
+    extra_wait = seconds_until_next_allowed()
+    if extra_wait > 0:
+        # Reschedule at allowed time
+        context.job_queue.run_once(send_poll, extra_wait)
+        print(f"Outside allowed hours. Rescheduled poll in {extra_wait:.0f}s")
+        return
+
     try:
-        message = await app.bot.send_poll(
+        message = await context.bot.send_poll(
             chat_id=GROUP_ID,
             message_thread_id=TOPIC_1_ID,
             question="What is Kevin doing right now?",
@@ -71,53 +66,25 @@ async def send_poll(app):
             is_anonymous=False,
             allows_multiple_answers=False
         )
-        print(f"[{datetime.now()}] Poll sent! Poll ID: {message.poll.id}, Message ID: {message.message_id}")
-        save_last_poll_time(time.time())
+        print(f"[{datetime.now()}] Poll sent! Poll ID: {message.poll.id}")
     except Exception as e:
         print(f"Error sending poll: {e}")
 
-async def poll_loop(app):
-    """Main poll loop."""
-    # Calculate initial wait based on last poll
-    last_time = load_last_poll_time()
-    now = time.time()
-    wait_seconds = max(0, POLL_INTERVAL - (now - last_time))
-
-    # Wait for allowed hours if outside window
-    extra_wait = seconds_until_next_allowed()
-    if extra_wait > 0:
-        print(f"Outside allowed hours, waiting {extra_wait:.0f}s until next poll window...")
-        await asyncio.sleep(extra_wait)
-
-    # Wait remaining interval before first poll
-    if wait_seconds > 0:
-        print(f"Waiting {wait_seconds:.0f}s until next poll based on last timestamp...")
-        await asyncio.sleep(wait_seconds)
-
-    # Start loop
-    while True:
-        # Check allowed hours
-        extra_wait = seconds_until_next_allowed()
-        if extra_wait > 0:
-            print(f"Outside allowed hours, sleeping {extra_wait:.0f}s...")
-            await asyncio.sleep(extra_wait)
-
-        await send_poll(app)
-        await asyncio.sleep(POLL_INTERVAL)
-
-async def start_poll(application):
-    """Start the poll loop once."""
-    global _poll_task
-    if _poll_task is None:
-        _poll_task = asyncio.create_task(poll_loop(application))
+    # Schedule next poll at next quarter-hour
+    next_quarter = seconds_until_next_quarter()
+    context.job_queue.run_once(send_poll, next_quarter)
+    print(f"Next poll scheduled in {next_quarter:.0f}s")
 
 # ------------------ Main ------------------
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    # PTB calls this once after initialization
-    app.post_init = start_poll
-    print("Bot starting...")
+
+    # Schedule the first poll at the next quarter-hour
+    initial_wait = seconds_until_next_quarter()
+    app.job_queue.run_once(send_poll, initial_wait)
+    print(f"Bot starting... first poll in {initial_wait:.0f}s")
+
     app.run_polling()
 
 if __name__ == "__main__":
