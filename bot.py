@@ -1,9 +1,9 @@
 import os
 import asyncio
-from telegram import Update, Poll
-from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes
+from telegram import Poll
+from telegram.ext import ApplicationBuilder, PollHandler, ContextTypes, Update
 
-# Bot token from environment variable
+# Bot token from environment
 TOKEN = os.environ.get("BOT_TOKEN")
 
 # Telegram IDs
@@ -66,25 +66,26 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         del poll_data[poll_id]
 
-async def poll_cycle(app):
+async def poll_cycle(app: "ApplicationBuilder"):
     """Send poll immediately, then every 15 minutes"""
     while True:
         await send_poll(app)
         await asyncio.sleep(900)  # 15 minutes
 
+async def post_init(app):
+    """Start poll loop after bot is running"""
+    app.create_task(poll_cycle(app))
+
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
+
+    # Poll answer handler
     app.add_handler(PollHandler(handle_poll_answer))
 
-    # Schedule poll_cycle as background task
-    async def start_poll_cycle():
-        await poll_cycle(app)
-
-    # Create background task
-    app.create_task(start_poll_cycle())
+    # Post-init callback to start repeating task
+    app.post_init(post_init)
 
     print("Bot starting...")
-    # Run bot (PTB handles asyncio loop internally)
     app.run_polling()
 
 if __name__ == "__main__":
