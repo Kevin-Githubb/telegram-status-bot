@@ -1,133 +1,145 @@
 import asyncio
-from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CallbackQueryHandler,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from datetime import datetime, timedelta
 
-# ======= CONFIG =======
+# ---------------- CONFIG ----------------
 BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-USERS = {"@iteachbad": "Kevin", "@ilearnbad": "Giselle"}  # map usernames to names
+CHAT_ID = -1003893865263  # Supergroup chat
+TOPIC1_ID = 190  # Activity messages
+TOPIC2_ID = 191  # Polling options
+
+USERS = {
+    "@iteachbad": "Kevin",
+    "@ilearnbad": "Giselle"
+}
+
 OPTIONS = ["Eating", "Studying", "Working", "Traveling", "Others"]
-CHAT_ID = "YOUR_CHAT_ID_HERE"  # can be a group or personal chat ID
-RESET_INTERVAL_MINUTES = 15  # change later, initially can trigger immediately
-# ====================
 
-# State to track selections
-user_selections = {}
-waiting_for_free_text = None  # store username if "Others" pressed
+# State tracking
+current_poll = {}
+selected_users = set()
 
+# ---------------- HELPERS ----------------
+def build_keyboard():
+    keyboard = [[InlineKeyboardButton(opt, callback_data=opt)] for opt in OPTIONS]
+    return InlineKeyboardMarkup(keyboard)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send options menu."""
-    await send_options_menu(context)
-
-
-async def send_options_menu(context: ContextTypes.DEFAULT_TYPE):
-    """Send inline keyboard with options."""
-    keyboard = [
-        [InlineKeyboardButton(opt, callback_data=opt)] for opt in OPTIONS
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(
-        chat_id=CHAT_ID, text="Select your activity:", reply_markup=reply_markup
+async def send_poll(app):
+    """Send poll in Topic 2."""
+    global current_poll, selected_users
+    current_poll = {}
+    selected_users.clear()
+    await app.bot.send_message(
+        chat_id=CHAT_ID,
+        message_thread_id=TOPIC2_ID,
+        text="Choose your activity:",
+        reply_markup=build_keyboard()
     )
 
+def next_quarter():
+    """Return datetime of next quarter hour."""
+    now = datetime.now()
+    minute = (now.minute // 15 + 1) * 15
+    hour = now.hour
+    if minute == 60:
+        minute = 0
+        hour += 1
+    return now.replace(hour=hour % 24, minute=minute, second=0, microsecond=0)
 
-async def option_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle option pressed by a user."""
-    global waiting_for_free_text
-
+# ---------------- HANDLERS ----------------
+async def handle_poll_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button presses."""
+    global current_poll, selected_users
     query = update.callback_query
     await query.answer()
-    user = query.from_user.username
-    selection = query.data
+    username = query.from_user.username
+    choice = query.data
 
-    # If user pressed "Others", wait for free text
-    if selection == "Others":
-        waiting_for_free_text = user
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text=f"{USERS.get(user, user)}, please type your activity now.",
-        )
+    if username not in USERS:
+        await query.edit_message_text("You are not authorized to select.")
         return
 
-    # Record selection
-    user_selections[user] = selection
-    await context.bot.send_message(
-        chat_id=CHAT_ID,
-        text=f"{USERS.get(user, user)}: {selection}",
-    )
+    # Save selection
+    current_poll[username] = choice
+    selected_users.add(username)
 
-    # Check if both users have selected
-    if all(u in user_selections for u in USERS):
-        await context.bot.send_message(chat_id=CHAT_ID, text="Both have selected! Options reset.")
-        user_selections.clear()
-        await send_options_menu(context)
+    # If 'Others', ask for manual input
+    if choice == "Others":
+        await context.bot.send_message(
+            chat_id=CHAT_ID,
+            message_thread_id=TOPIC2_ID,
+            text=f"{USERS[username]}, please type your activity."
+        )
 
+    # If both selected, post in Topic 1 and delete buttons
+    if len(selected_users) == 2:
+        for user, act in current_poll.items():
+            # Skip if still 'Others' waiting for text
+            if act == "Others":
+                continue
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                message_thread_id=TOPIC1_ID,
+                text=f"{USERS[user]}: {act}"
+            )
+        # Clear poll
+        await query.edit_message_text("Poll closed. Next poll in 15 minutes.")
+        current_poll.clear()
+        selected_users.clear()
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle free-text for 'Others' option."""
-    global waiting_for_free_text
-    user = update.message.from_user.username
+    """Handle manual text for 'Others' option."""
+    global current_poll
+    username = update.message.from_user.username
+    if username not in current_poll or current_poll[username] != "Others":
+        return
+
     text = update.message.text
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        message_thread_id=TOPIC1_ID,
+        text=f"{USERS[username]}: {text}"
+    )
+    # Mark as selected
+    selected_users.add(username)
 
-    if waiting_for_free_text == user:
-        user_selections[user] = text
+    if len(selected_users) == 2:
+        # Delete poll message (optional, leave text as record)
         await context.bot.send_message(
-            chat_id=CHAT_ID, text=f"{USERS.get(user, user)}: {text}"
+            chat_id=CHAT_ID,
+            message_thread_id=TOPIC2_ID,
+            text="Poll closed. Next poll in 15 minutes."
         )
-        waiting_for_free_text = None
+        current_poll.clear()
+        selected_users.clear()
 
-        # Check if both users have selected
-        if all(u in user_selections for u in USERS):
-            await context.bot.send_message(chat_id=CHAT_ID, text="Both have selected! Options reset.")
-            user_selections.clear()
-            await send_options_menu(context)
-
-
-async def reset_options_periodically(context: ContextTypes.DEFAULT_TYPE):
-    """Reset the options menu every quarter-hour."""
+# ---------------- SCHEDULER ----------------
+async def reset_options_periodically(app):
+    """Trigger poll every quarter hour."""
     while True:
+        await send_poll(app)
         now = datetime.now()
-        # Next quarter-hour
-        next_minute = (now.minute // 15 + 1) * 15
-        next_time = now.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=next_minute)
-        wait_seconds = (next_time - now).total_seconds()
+        next_run = next_quarter()
+        wait_seconds = (next_run - now).total_seconds()
         await asyncio.sleep(wait_seconds)
 
-        user_selections.clear()
-        await send_options_menu(context)
-
-
+# ---------------- MAIN ----------------
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Commands
-    app.add_handler(CommandHandler("start", start))
-
-    # Inline button presses
-    app.add_handler(CallbackQueryHandler(option_selected))
-
-    # Free-text input for "Others"
+    # Handlers
+    app.add_handler(CallbackQueryHandler(handle_poll_selection))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Start periodic reset task
+    # Immediate poll for testing
+    await send_poll(app)
+
+    # Start periodic polling
     app.create_task(reset_options_periodically(app))
 
-    # For immediate testing on deploy, send options right away
-    await send_options_menu(app)
-
+    print("Bot starting...")
     await app.run_polling()
 
-
 if __name__ == "__main__":
-    import nest_asyncio
-
-    nest_asyncio.apply()  # ensures no "event loop already running" in some containers
     asyncio.run(main())
