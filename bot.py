@@ -16,8 +16,8 @@ TOPIC_1_ID = 190  # Topic to poll
 OPTIONS = ["Eating", "Going to Sleep", "Working", "Studying", "Exercising", "Washing Up", "Travelling"]
 
 # Allowed poll hours
-START_HOUR = 7   # 7:00 AM
-END_HOUR = 24    # Midnight
+START_HOUR = 7
+END_HOUR = 24
 
 # ------------------ Utils ------------------
 
@@ -25,25 +25,24 @@ def next_quarter_exact(now=None):
     """Return datetime object of the next quarter-hour in allowed hours."""
     if now is None:
         now = datetime.now()
+    # Round up to next quarter
     minutes = ((now.minute // 15) + 1) * 15
     hour = now.hour
     if minutes == 60:
         minutes = 0
         hour += 1
     next_quarter = now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
-    
-    # If outside allowed hours, move to next day's START_HOUR
+
+    # Move to next day's START_HOUR if outside allowed hours
     if not (START_HOUR <= next_quarter.hour < END_HOUR):
-        next_quarter = next_quarter.replace(hour=START_HOUR, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    
+        next_quarter = next_quarter.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
+        if next_quarter <= now:
+            next_quarter += timedelta(days=1)
     return next_quarter
 
-def seconds_until_next_quarter():
-    """Return seconds until next poll time."""
-    now = datetime.now()
-    next_time = next_quarter_exact(now)
-    delta = (next_time - now).total_seconds()
-    return max(delta, 0)
+def seconds_until(next_time):
+    """Return seconds until given datetime."""
+    return max((next_time - datetime.now()).total_seconds(), 0)
 
 # ------------------ Polling ------------------
 
@@ -70,14 +69,15 @@ def send_poll(bot: Bot):
 def main():
     bot = Bot(token=BOT_TOKEN)
     print(f"[{datetime.now()}] Bot started... Sending first poll immediately.")
-    
-    # --- Send first poll immediately ---
+
+    # --- First poll ---
     send_poll(bot)
-    
+
+    # --- Loop for subsequent polls ---
     while True:
-        # Calculate seconds until the next exact quarter
-        wait_seconds = seconds_until_next_quarter()
-        print(f"[{datetime.now()}] Waiting {wait_seconds:.0f}s until next poll...")
+        next_poll_time = next_quarter_exact()
+        wait_seconds = seconds_until(next_poll_time)
+        print(f"[{datetime.now()}] Waiting {wait_seconds:.0f}s until next poll at {next_poll_time}...")
         time.sleep(wait_seconds)
         send_poll(bot)
 
