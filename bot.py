@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta
-from telegram import Bot, Poll
+from telegram import Bot
 
 # --- Bot token ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -69,11 +69,15 @@ def send_poll(bot: Bot):
 
 def main():
     bot = Bot(token=BOT_TOKEN)
-    print(f"[{datetime.now()}] Bot started...")
-
+    print(f"[{datetime.now()}] Bot started... Sending first poll immediately.")
+    
+    # --- Send first poll immediately ---
+    send_poll(bot)
+    
     while True:
+        # Calculate seconds until the next exact quarter
         wait_seconds = seconds_until_next_quarter()
-        print(f"[{datetime.now()}] Waiting {wait_seconds:.0f} seconds until next poll...")
+        print(f"[{datetime.now()}] Waiting {wait_seconds:.0f}s until next poll...")
         time.sleep(wait_seconds)
         send_poll(bot)
 
